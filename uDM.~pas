@@ -1,0 +1,254 @@
+unit uDM;
+
+interface
+
+uses
+  SysUtils, Classes, uClassDef, DB, ADODB, Inifiles, Forms, Dialogs;
+  // Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms, Dialogs;
+
+const
+  ConstIniSectionSetUp = 'SETUP';
+  ConstIniKeyConnString = 'ConnectionString';
+
+type
+  TDM = class(TDataModule)
+    Con: TADOConnection;
+    qryInsertRange: TADOQuery;
+    qryInsertRangeElement: TADOQuery;
+    qryInsertRangeSubElement: TADOQuery;
+    qryDeleteRange: TADOQuery;
+    qryDeleteRangeElement: TADOQuery;
+    qryDeleteRangeSubElement: TADOQuery;
+    qryGetRange: TADOQuery;
+    qryGetRangeElement: TADOQuery;
+    qryGetRangeSubElement: TADOQuery;
+    procedure DataModuleCreate(Sender: TObject);
+  private
+    { Private declarations }
+    function GetConnectionString:string;
+    function SaveRangeToDB(ARange:TRange):Boolean;
+    function SaveRangeElementToDB(const RangeId:Integer; ARangeElement:TRangeElement):Boolean;
+    function SaveRangeSubElementToDB(const RangeId:Integer; const ElementId:Integer; ARangeSubElement:TRangeElement):Boolean;
+    procedure LoadRangeElementFromDB(ARange: TRange);
+    procedure LoadRangeSubElementFromDB(ARange:TRange; ARangeElement:TRangeElement);
+  public
+    { Public declarations }
+    function ConnectToDB():Boolean;
+    function IsDBConnected():Boolean;
+    procedure SaveToDB(ARangeList:TRangeList);
+    function LoadFromDB():TRangeList;
+    function CleanDB():Boolean;
+  end;
+
+var
+  DM: TDM;
+
+implementation
+
+{$R *.dfm}
+
+{ TDataModule1 }
+
+
+{ TDataModule1 }
+
+//Method to Save List of Ranges to Database.
+//This method calls individual method for Range, RagneElement & RangeSubElement
+procedure TDM.SaveToDB(ARangeList: TRangeList);
+var
+  I:Integer;
+begin
+  CleanDB(); //Clean Existing Data
+  for I:=0 to ARangeList.Count-1 do begin
+    Con.BeginTrans();
+    if SaveRangeToDB(ARangeList[I]) then
+      Con.CommitTrans()
+    else
+      Con.RollbackTrans();
+  end;
+end;
+
+//Method to save Individual Ranges to Database.
+//This method internally calls method to save RangeElement
+function TDM.SaveRangeToDB(ARange: TRange):Boolean;
+var
+  I:Integer;
+  SQL:string;
+begin
+  Result := True;
+  try
+    qryInsertRange.Close();
+    qryInsertRange.Parameters.ParamByName('RangeID').Value := ARange.Id;
+    qryInsertRange.Parameters.ParamByName('Description').Value := ARange.Description;
+    qryInsertRange.ExecSQL();
+    for I:=0 to ARange.Elements.Count-1 do begin
+      Result := SaveRangeElementToDB(ARange.Id, ARange.Elements[I]);
+      if (not Result) then
+        Exit;
+    end;
+  except
+    Result := False;
+  end;
+end;
+
+//Method to save Individual RangeElement to Database.
+//This method internally calls method to save RangeSubElement
+function TDM.SaveRangeElementToDB(const RangeId:Integer; ARangeElement: TRangeElement):Boolean;
+var
+  I:Integer;
+  SQL:string;
+begin
+  Result := True;
+  try
+  qryInsertRangeElement.Close();
+  qryInsertRangeElement.Parameters.ParamByName('RangeID').Value := RangeId;
+  qryInsertRangeElement.Parameters.ParamByName('ElementID').Value := ARangeElement.Id;
+  qryInsertRangeElement.Parameters.ParamByName('Quantity').Value := ARangeElement.Quantity;
+  qryInsertRangeElement.ExecSQL();
+  for I:=0 to ARangeElement.SubElements.Count-1 do begin
+    Result := SaveRangeSubElementToDB(RangeId, ARangeElement.Id, ARangeElement.SubElements[I]);
+    if not Result then
+      Exit;
+  end;
+  except
+    Result := False;
+  end;
+end;
+
+//Method to save Individual RangeSubElement to Database.
+function TDM.SaveRangeSubElementToDB(const RangeId:Integer; const ElementId:Integer; ARangeSubElement: TRangeElement):Boolean;
+var
+  I:Integer;
+  SQL:string;
+begin
+  Result := True;
+  try
+    qryInsertRangeSubElement.Close();
+    qryInsertRangeSubElement.Parameters.ParamByName('RangeID').Value := RangeId;
+    qryInsertRangeSubElement.Parameters.ParamByName('ElementID').Value := ElementId;
+    qryInsertRangeSubElement.Parameters.ParamByName('SubElementID').Value := ARangeSubElement.Id;
+    qryInsertRangeSubElement.ExecSQL();
+  except
+    Result := False;
+  end;
+end;
+
+
+//Primary method to load Ranges from database.
+//This will internally load Range Elements & Range Sub Elements
+function TDM.LoadFromDB: TRangeList;
+var
+  Index:Integer;
+begin
+  Result := TRangeList.Create();
+  qryGetRange.Close();
+  qryGetRange.Open();
+  qryGetRange.First;
+  while not qryGetRange.Eof do begin
+    Index := Result.Add(TRange.Create(qryGetRange.FieldByName('RANGE_ID').AsInteger, qryGetRange.FieldByName('DESCRIPTION').AsString));
+    LoadRangeElementFromDB(Result[Index]);
+    qryGetRange.Next;
+  end;
+  qryGetRange.Close();
+end;
+
+procedure TDM.LoadRangeElementFromDB(ARange:TRange);
+var
+  I:Integer;
+  Element:TRangeElement;
+begin
+  qryGetRangeElement.Close();
+  qryGetRangeElement.Parameters.ParamByName('RangeID').Value := ARange.Id;
+  qryGetRangeElement.Open();
+  qryGetRangeElement.First;
+  while not qryGetRangeElement.Eof do begin
+    ARange.Elements.Add(TRangeElement.Create(qryGetRangeElement.FieldByName('ELEMENT_ID').AsInteger, qryGetRangeElement.FieldByName('QUANTITY').AsInteger));
+    qryGetRangeElement.Next;
+  end;
+  qryGetRangeElement.Close();
+
+  //For Each element load its Sub Elements
+  for I:=0 to ARange.Elements.Count -1 do begin
+    Element:= ARange.Elements[I];
+    LoadRangeSubElementFromDB(ARange, Element);
+  end;
+end;
+
+procedure TDM.LoadRangeSubElementFromDB(ARange:TRange; ARangeElement:TRangeElement);
+var
+  I:Integer;
+  Element:TRangeElement;
+begin
+  qryGetRangeSubElement.Close();
+  qryGetRangeSubElement.Parameters.ParamByName('RangeID').Value := ARange.Id;
+  qryGetRangeSubElement.Parameters.ParamByName('ElementID').Value := ARangeElement.Id;
+  qryGetRangeSubElement.Open();
+  qryGetRangeSubElement.First;
+  while not qryGetRangeSubElement.Eof do begin
+    Element := ARange.Elements.ItemById[qryGetRangeSubElement.FieldByName('SubElement_ID').AsInteger];
+    if ARangeElement.SubElements.ItemById[Element.Id] = nil then
+      ARangeElement.SubElements.Add(Element);
+    qryGetRangeSubElement.Next;
+  end;
+  qryGetRangeSubElement.Close();
+
+  //For each Sub Elemenets, load its sub elements if there any recursively.
+  for I:=0 to ARangeElement.SubElements.Count-1 do begin
+    LoadRangeSubElementFromDB(ARange, ARangeElement.SubElements[I]);
+  end;
+end;
+
+
+function TDM.GetConnectionString: string;
+var
+  IniFileName:string;
+  Ini:TIniFile;
+  ConnString:string;
+begin
+  IniFileName := ChangeFileExt(Application.ExeName, '.ini');
+  if not FileExists(IniFileName) then
+    raise Exception.Create('Ini File ' + QuotedStr(IniFileName) + ' not found!');
+  Ini := TIniFile.Create(IniFileName);
+  if not (Ini.SectionExists(ConstIniSectionSetUp)) then
+    raise Exception.Create('Connection string not found inside Inifile!');
+  ConnString := Ini.ReadString(ConstIniSectionSetUp, ConstIniKeyConnString, '');
+  if (Trim(ConnString)='') then
+    raise Exception.Create('Connection string not found inside Inifile!');
+  Result := ConnString;
+end;
+
+function TDM.ConnectToDB: Boolean;
+begin
+  Result := True;
+  if (Con.Connected) then
+    Exit;
+
+  Result := False;
+  try
+    Con.Connected := True;
+  except on E:Exception do
+    begin
+      ShowMessage(E.Message);
+    end;
+  end;
+  Result := Con.Connected
+end;
+
+function TDM.IsDBConnected: Boolean;
+begin
+  Result := Con.Connected;
+end;
+
+function TDM.CleanDB: Boolean;
+begin
+  qryDeleteRange.ExecSQL();
+  qryDeleteRangeElement.ExecSQL();
+  qryDeleteRangeSubElement.ExecSQL();
+end;
+
+procedure TDM.DataModuleCreate(Sender: TObject);
+begin
+  Con.ConnectionString := GetConnectionString();
+end;
+
+end.
