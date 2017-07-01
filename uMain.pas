@@ -51,29 +51,29 @@ uses
 procedure TfrmMain.DestroyRanges(ARangeList:TRangeList);
 var
   ObjRange:TRange;
-  ObjRangleElement:TRangeElement;
-  ObjRangeSubElement:TRangeElement;
-  iRange, iRangleElement, iRangeSubElement:Integer;
+  ObjRangeElement:TRangeElement;
+  iRange, iRangeElement:Integer;
 begin
   for iRange := ARangeList.Count-1 downto 0 do begin
     ObjRange := ARangeList[iRange];
-    for iRangleElement := ObjRange.Elements.Count-1 downto 0 do begin
-      ObjRangleElement := ObjRange.Elements[iRangleElement];
-      for iRangeSubElement := ObjRangleElement.SubElements.Count-1 downto 0 do begin
-        ObjRangeSubElement := ObjRangleElement.SubElements[iRangeSubElement];
-        ObjRangeSubElement.Free;
+    for iRangeElement := Pred(ObjRange.Elements.Count) downto 0 do begin
+      ObjRangeElement := ObjRange.Elements[iRangeElement];
+      try
+      if Assigned(ObjRangeElement) then
+        TObject(ObjRangeElement).Free;
+      except
       end;
-      ObjRangleElement.Free;
     end;
-    ObjRange.Free;
+    ObjRange.Elements.Clear();
+    if Assigned(ObjRange) then
+      TObject(ObjRange).Free;
   end;
-  ARangeList.Free;
+  ARangeList.Clear();
 end;
 
 //Loads default data into memory
 procedure TfrmMain.LoadDataIntoMemory(ARangeList:TRangeList);
 var
-  Index:Integer;
   Range:TRange;
   Element:TRangeElement;
 begin
@@ -82,10 +82,9 @@ begin
     raise Exception.Create('Invalid Range List Object!');
     Exit;
   end;
-
-  ARangeList.Clear();
+  DestroyRanges(ARangeList);
   //Create and Add Range to Range List Object
-  Index := ARangeList.Add(TRange.Create(1, 'First Dummy Range'));
+  ARangeList.Add(TRange.Create(1, 'First Dummy Range'));
   Range:= ARangeList.ItemById[1];
 
   //Add Elements to Range
@@ -97,13 +96,13 @@ begin
 
   //Add Sub Elements to Element 10000
   Element := Range.Elements.ItemById[10000];
-  Element.SubElements.Add(ARangeList[Index].Elements.ItemById[10001]);
-  Element.SubElements.Add(ARangeList[Index].Elements.ItemById[10002]);
+  Element.SubElements.Add(Range.Elements.ItemById[10001]);
+  Element.SubElements.Add(Range.Elements.ItemById[10002]);
 
   //Add Sub Elements to Element 30000
   Element := Range.Elements.ItemById[30000];
-  Element.SubElements.Add(ARangeList[Index].Elements.ItemById[10000]);
-  Element.SubElements.Add(ARangeList[Index].Elements.ItemById[20000]);
+  Element.SubElements.Add(Range.Elements.ItemById[10000]);
+  Element.SubElements.Add(Range.Elements.ItemById[20000]);
 end;
 
 procedure TfrmMain.btnLoadIntoMemoryClick(Sender: TObject);
@@ -174,11 +173,10 @@ end;
 
 procedure TfrmMain.LoadRangeSubElementsToTreeView(RangeElementNode:TTreeNode; ARangeElement:TRangeElement);
 var
-  Node:TTreeNode;
   I:Integer;
 begin
   for I:=0 to ARangeElement.SubElements.Count-1 do begin
-    Node := tvw.Items.AddChild(RangeElementNode, 'Sub-Element:' + IntToStr(ARangeElement.SubElements[I].Id));
+    tvw.Items.AddChild(RangeElementNode, 'Sub-Element:' + IntToStr(ARangeElement.SubElements[I].Id));
   end;
 end;
 
@@ -226,6 +224,7 @@ begin
   FRangeList := TRangeList.Create();
   LoadDataIntoMemory(FRangeList);
   LoadRangesTreeView(FRangeList);
+  DestroyRanges(FRangeList);
 end;
 
 end.

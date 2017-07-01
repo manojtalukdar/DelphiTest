@@ -98,7 +98,7 @@ end;
 
 constructor TRangeElement.Create(const aId: Integer);
 begin
-  Create(0, 0);
+  Create(aId, 0);
 end;
 
 constructor TRangeElement.Create(const aId: Integer; aQuantity: Integer);
@@ -112,9 +112,9 @@ destructor TRangeElement.Destroy;
 var
   I:Integer;
 begin
-  for I:=SubElements.Count-1 downto 0 do begin
-    SubElements[I].Free;
-  end;
+  //SubElements are Pointer to Elements.
+  //No need to destroy Sub Elements.
+  //we need destroy only Elemetns no Sub Elements
   inherited;
 end;
 
